@@ -246,11 +246,11 @@ class BasePredictor:
 
             # Preprocess
             with profilers[0]:
-                im = self.preprocess(im0s)
+                im = self.preprocess(im0s) #[1, 3, 640, 480]
 
             # Inference
             with profilers[1]:
-                preds = self.inference(im, *args, **kwargs)
+                preds = self.inference(im, *args, **kwargs) #list of two items
 
             # Postprocess
             with profilers[2]:
