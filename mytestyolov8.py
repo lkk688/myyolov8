@@ -14,7 +14,7 @@ def test_inference(detectionmodel, imagepath):
     if nn_module:  # in-memory PyTorch model
         detectionmodel = detectionmodel.to(device)
         detectionmodel = detectionmodel.fuse(verbose=False) if fuse else detectionmodel
-        stride = max(int(detectionmodel.stride.max()), 32)  # model stride
+        #stride = max(int(detectionmodel.stride.max()), 32)  # model stride
         names = detectionmodel.module.names if hasattr(detectionmodel, 'module') else detectionmodel.names  # get class names
         detectionmodel.half() if fp16 else detectionmodel.float()
         detectionmodel.eval()
@@ -59,6 +59,8 @@ if __name__ == "__main__":
     model = YOLO('yolov8n.yaml')  # build a new model from scratch
     model = YOLO('yolov8n.pt')  # load a pretrained model (recommended for training) _load in ultralytics\engine\model.py
 
+    imagepath = 'https://ultralytics.com/images/bus.jpg'
+    #result = test_inference(model, imagepath)
 
     results = model('https://ultralytics.com/images/bus.jpg')  # predict on an image
     #return list of Results object, key 'boxes'
