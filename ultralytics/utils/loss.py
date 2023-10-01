@@ -128,69 +128,69 @@ class v8DetectionLoss:
         self.bbox_loss = BboxLoss(m.reg_max - 1, use_dfl=self.use_dfl).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 
-    def preprocess(self, targets, batch_size, scale_tensor):
+    def preprocess(self, targets, batch_size, scale_tensor): #targets [232, 6]
         """Preprocesses the target counts and matches with the input batch size to output a tensor."""
         if targets.shape[0] == 0:
             out = torch.zeros(batch_size, 0, 5, device=self.device)
         else:
-            i = targets[:, 0]  # image index
-            _, counts = i.unique(return_counts=True)
+            i = targets[:, 0]  # image index [232]
+            _, counts = i.unique(return_counts=True) #counts [16], object counts in each image
             counts = counts.to(dtype=torch.int32)
-            out = torch.zeros(batch_size, counts.max(), 5, device=self.device)
+            out = torch.zeros(batch_size, counts.max(), 5, device=self.device) #[16, 32, 5]
             for j in range(batch_size):
-                matches = i == j
-                n = matches.sum()
+                matches = i == j #all objects for one image
+                n = matches.sum() #12 objects
                 if n:
-                    out[j, :n] = targets[matches, 1:]
-            out[..., 1:5] = xywh2xyxy(out[..., 1:5].mul_(scale_tensor))
+                    out[j, :n] = targets[matches, 1:] #copy to out, other places are 0
+            out[..., 1:5] = xywh2xyxy(out[..., 1:5].mul_(scale_tensor)) #each bbox * 640
         return out
 
-    def bbox_decode(self, anchor_points, pred_dist):
+    def bbox_decode(self, anchor_points, pred_dist): #pred_dist[16, 8400, 64]
         """Decode predicted object bounding box coordinates from anchor points and distribution."""
         if self.use_dfl:
-            b, a, c = pred_dist.shape  # batch, anchors, channels
+            b, a, c = pred_dist.shape  # batch 16, anchors 8400, channels 64
             pred_dist = pred_dist.view(b, a, 4, c // 4).softmax(3).matmul(self.proj.type(pred_dist.dtype))
             # pred_dist = pred_dist.view(b, a, c // 4, 4).transpose(2,3).softmax(3).matmul(self.proj.type(pred_dist.dtype))
             # pred_dist = (pred_dist.view(b, a, c // 4, 4).softmax(2) * self.proj.type(pred_dist.dtype).view(1, 1, -1, 1)).sum(2)
-        return dist2bbox(pred_dist, anchor_points, xywh=False)
+        return dist2bbox(pred_dist, anchor_points, xywh=False) #pred_dist[16, 8400, 4]
 
     def __call__(self, preds, batch):
         """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
         loss = torch.zeros(3, device=self.device)  # box, cls, dfl
-        feats = preds[1] if isinstance(preds, tuple) else preds
+        feats = preds[1] if isinstance(preds, tuple) else preds #[16,144,80,60], [1, 144, 40, 30], [1, 144, 20, 15]
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
-            (self.reg_max * 4, self.nc), 1)
+            (self.reg_max * 4, self.nc), 1) #[16, 64, 8400] [16, 80, 8400]
 
-        pred_scores = pred_scores.permute(0, 2, 1).contiguous()
-        pred_distri = pred_distri.permute(0, 2, 1).contiguous()
+        pred_scores = pred_scores.permute(0, 2, 1).contiguous() #[16, 8400, 80]
+        pred_distri = pred_distri.permute(0, 2, 1).contiguous() #[16, 8400, 64]
 
-        dtype = pred_scores.dtype
-        batch_size = pred_scores.shape[0]
-        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]  # image size (h,w)
-        anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
-
+        dtype = pred_scores.dtype #torch.float16
+        batch_size = pred_scores.shape[0] #16
+        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]  # image size (h,w) (640,640)
+        anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5) #stride=[ 8., 16., 32.]
+        #[8400, 2] (0.5, 1.5, ), [8400, 1] (8,8,...32.,)
         # targets
-        targets = torch.cat((batch['batch_idx'].view(-1, 1), batch['cls'].view(-1, 1), batch['bboxes']), 1)
-        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
-        gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
-        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0)
+        targets = torch.cat((batch['batch_idx'].view(-1, 1), batch['cls'].view(-1, 1), batch['bboxes']), 1) #[232, 6]
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]]) #[16, 32, 5] 32 is maximum objects/img in that batch
+        gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls [16, 32, 1], xyxy [16, 32, 4]
+        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0) #[16, 32, 1]
 
-        # pboxes
+        # pboxes anchor_points[8400, 2] pred_distri[16, 8400, 64]
         pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
-
+        #[16, 8400, 4]
         _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
             pred_scores.detach().sigmoid(), (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
             anchor_points * stride_tensor, gt_labels, gt_bboxes, mask_gt)
 
-        target_scores_sum = max(target_scores.sum(), 1)
+        target_scores_sum = max(target_scores.sum(), 1) #[16, 8400, 80] -> single value
 
-        # cls loss
+        # cls loss, pred_scores[16, 8400, 80]
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
         loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
 
         # bbox loss
         if fg_mask.sum():
-            target_bboxes /= stride_tensor
+            target_bboxes /= stride_tensor #[16, 8400, 4]
             loss[0], loss[2] = self.bbox_loss(pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores,
                                               target_scores_sum, fg_mask)
 

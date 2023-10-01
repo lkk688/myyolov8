@@ -62,17 +62,17 @@ if __name__ == "__main__":
     imagepath = 'https://ultralytics.com/images/bus.jpg'
     #result = test_inference(model, imagepath)
 
-    results = model('https://ultralytics.com/images/bus.jpg')  # predict on an image
+    #results = model('https://ultralytics.com/images/bus.jpg')  # predict on an image
     #return list of Results object, key 'boxes'
     # Use the model
     results = model.train(data='coco128.yaml', epochs=3)  # train the model
     results = model.val()  # evaluate model performance on the validation set
 
-    results = model.export(format='onnx')  # export the model to ONNX format
+    # results = model.export(format='onnx')  # export the model to ONNX format
 
-    detectionmodel=model.model #model.ckpt.model, 
-    torch.save(detectionmodel.state_dict(), './yolov8n_statedicts.pt')
+    # detectionmodel=model.model #model.ckpt.model, 
+    # torch.save(detectionmodel.state_dict(), './yolov8n_statedicts.pt')
 
 
-    imagepath=r'C:\Users\lkk68\Documents\GitHub\myyolov8\bus.jpg'
-    test_inference(detectionmodel, imagepath)
+    # imagepath=r'C:\Users\lkk68\Documents\GitHub\myyolov8\bus.jpg'
+    # test_inference(detectionmodel, imagepath)

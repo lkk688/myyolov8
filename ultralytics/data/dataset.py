@@ -169,7 +169,7 @@ class YOLODataset(BaseDataset):
         return label
 
     @staticmethod
-    def collate_fn(batch):
+    def collate_fn(batch): #16 imagefile list, each item is a dict
         """Collates data samples into batches."""
         new_batch = {}
         keys = batch[0].keys()
